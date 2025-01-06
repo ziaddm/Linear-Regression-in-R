@@ -1,6 +1,6 @@
 # Linear-Regression-in-R
-Using a linear regression model in R to predict movie revenue based on other movie metrics.
+In this project, I used a linear regression model in R to predict movie revenue based on other movie metrics.
 
-PNG file contains a poster explainign the analysis.
+PNG file contains a poster explaining the methods used and results of the model.
 
-html file contains all code for the anaylsis and figures along with comments
+html file contains all code for the model and figures.
