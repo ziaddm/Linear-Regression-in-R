@@ -1,6 +1,6 @@
 # movie-data-regression-analysis
-In this project, I used a linear regression model in R to predict movie revenue based on other movie metrics.
+In this project, I used a linear regression model in R to predict movie revenue based on other movie metrics. All code was written in R using R studio.
 
-PNG file contains a poster explaining the methods used and results of the model.
+The PNG file contains a poster explaining the methods used and results of the model.
 
-html file contains all code for the model and figures.
+The R Markdown file contains all code for the model and figures.
