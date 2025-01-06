@@ -1,0 +1,416 @@
+---
+title: "posterFinal"
+output: html_document
+date: "2024-12-21"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(addAlpha)
+library(lm.beta)
+library(splitstackshape)
+library(ghibli)
+library(car)
+library(corrplot)
+```
+
+```{r}
+# Defining colours
+theColours <- hcl.colors(256, palette = "Broc")
+```
+
+```{r}
+# Reading in data
+movieData <- read.csv("C:/Users/ziadm/Desktop/RStudio/tmdb_5000_movies.csv")
+
+# Displaying a summary of the data to get an idea of what it looks like.
+summary(movieData)
+
+```
+
+### Box Plots
+
+```{r, fig.width= 12, fig.height = 6}
+# Creating box plots to identify outliers
+
+par(mfcol = c(1, 6))
+
+variables <- c("budget", "revenue", "popularity", "vote_average", "vote_count", "runtime")
+titles <- c("Log10 Budget ($)", "Log10 Revenue($)", "Log10 Popularity", "Log10 Average Viewer\nRating", "Log10 Rating Count", " Log10 Runtime\n(minutes)")
+
+for (i in 1:length(variables)) {
+  variable_data <- log10(movieData[[variables[i]]] + 1)
+  
+  ylimit <- range(pretty(range(variable_data, na.rm = TRUE)))
+  
+  boxplot(variable_data, axes = FALSE, ann = FALSE, ylim = ylimit, lwd = 2,
+          col = NA, border = "#3366CC", boxwex = 0.5, staplewex = 0.25)
+  
+  axis(2, at = pretty(ylimit), tck = -0.015, labels = FALSE, lwd = 2, line = -0.5)
+  mtext(pretty(ylimit), 2, at = pretty(ylimit), line = 0.05, las = 1)
+  mtext(titles[i], font = 2, side = 2, line = 2.5)
+
+}
+```
+
+```{r}
+# Removing some missing values from the runtime column
+sum(is.na(movieData$runtime))
+movieData <- movieData[!is.na(movieData$runtime), ]
+```
+
+```{r}
+# Filtering out extreme values and outliers found through EDA
+filter0 <- movieData[movieData$runtime >= 30 & movieData$runtime <= 200, ]
+filter1 <- filter0[filter0$budget >= 100000, ]
+filter2 <- filter1[filter1$vote_average >= 1, ]
+filter3 <- filter2[filter2$popularity >= 1 &  filter2$popularity <= 300, ]
+filteredMovie <- filter3[filter3$revenue >= 100000 & filter3$revenue <= 1000000000, ]
+
+# Checking to see if the amount of rows left after filtering is enough to build the model
+nrow(filteredMovie)
+```
+
+# Exploratory Data Analysis (EDA)
+
+### Scatter Plots
+
+```{r}
+predictorVariables <- c("Log10 Budget ($)\n", "Log10 Popularity\n", "Log10 Number of\nRatings", "Runtime\n(in minutes)")
+dataColumns <- c("budget", "popularity", "vote_count", "runtime")
+
+par(mfcol = c(1, 4), oma = c(2, 2, 3, 2), mai = c(.7, .5, .7, .3))
+
+for (i in 1:length(predictorVariables)) {
+  predictor <- if (dataColumns[i] != "runtime") {
+    log10(filteredMovie[[dataColumns[i]]] + 1)
+  } else {
+    filteredMovie[[dataColumns[i]]]
+  }
+  
+  revenue <- log10(filteredMovie$revenue + 1)
+  
+  xlimit <- range(predictor)
+  xticks <- pretty(xlimit, n = 3)
+  ylimit <- range(pretty(range(revenue)))
+  
+  plot(predictor, revenue,
+       xlim = range(xticks), ylim = ylimit, axes = FALSE, ann = FALSE, 
+       pch = 21, col = "#7f9bd4", bg = "white")
+  
+  axis(1, at = xticks, labels = FALSE, tck = -0.015, lwd = 2)
+  axis(2, at = pretty(ylimit), tck = -0.015, labels = FALSE, lwd = 2)
+  
+  mtext(xticks, side = 1, at = xticks, line = 0.4, cex = .9)
+  mtext(predictorVariables[i], side = 1, line = 3.4, font = 2)
+  
+  if (i == 1) {
+    mtext(pretty(ylimit), side = 2, at = pretty(ylimit), line = 0.4, las = 1)
+    mtext("Log10 Revenue ($)", side = 2, line = 2.5, font = 2)
+  }
+  
+  abline(lm(revenue ~ predictor), col = "gray60", lwd = 2)
+}
+
+mtext("Relationship Between Predictor Variables and Revenue", side = 3, font = 2, line = -4, outer = TRUE)
+
+
+```
+
+The figures above show us the linear relationships between our predictor variables and our target variable.
+
+### Time Series of Revenue
+
+```{r}
+# Checking the format the release date is in
+filteredMovie$release_date[1]
+```
+
+```{r}
+# We only need year so extracting years as a number and storing them in a new column
+filteredMovie$releaseYear <- as.numeric(substr(filteredMovie$release_date, 1, 4))
+
+# Making 5-year intervals using cut()
+filteredMovie$yearBin <- cut(filteredMovie$releaseYear, 
+                              breaks = seq(min(filteredMovie$releaseYear),
+                                           max(filteredMovie$releaseYear), by = 5),
+                              include.lowest = TRUE, labels = FALSE)
+
+# Aggregating total revenue for each 5-year interval
+yearlyRevenue <- aggregate(revenue ~ yearBin, data = filteredMovie, sum)
+
+xlimit <- range(pretty(range(unique(filteredMovie$releaseYear))))
+ylimit <- range(pretty(range(log10(yearlyRevenue$revenue))))
+
+# Creating the time series
+plot(x = seq(min(filteredMovie$releaseYear), max(filteredMovie$releaseYear), by = 5)[1:length(yearlyRevenue$revenue)], 
+     y = log10(yearlyRevenue$revenue), 
+     type = "b", xlim = xlimit, ylim = ylimit, axes = FALSE, ann = FALSE, 
+     col = "#3366CC", lwd = 2.5, pch = 19)
+
+axis(1, at = pretty(xlimit), lwd = 2, tck = -0.015, labels = FALSE)
+axis(2, at = pretty(ylimit), lwd = 2, tck = -0.015, labels = FALSE, pos = xlimit[1])
+
+mtext(pretty(xlimit), side = 1, at = pretty(xlimit), line = .1)
+mtext("Release Year (5-Year Intervals)", side = 1, line = 1.5, font = 2)
+mtext(pretty(ylimit), side = 2, at = pretty(ylimit), line = -.5, las = 1)
+mtext("Log10 Revenue ($)", side = 2, line = .9, font = 2)
+mtext("Trends in Total Revenue Over Time", side = 3, line = 1, font = 2)
+```
+
+This figure provides insight into how movie revenue has evolved over time while also highlighting the range and distribution of years represented in our data set.
+
+### Production Company
+
+```{r}
+# Function to find the name of the company within the notation used in the data set
+filteredMovie$prodName <- sapply(filteredMovie$production_companies, function(x) {
+  match <- regexpr('(?<="name": ").*?(?=",)', x, perl = TRUE)
+  if (match > 0) {
+    substr(x, match, match + attr(match, "match.length") - 1)
+  } else {
+    NA
+  }
+})
+
+# Check if it worked and the number of unique companies
+length(unique(filteredMovie$prodName))
+head(unique(filteredMovie$prodName))
+```
+
+```{r}
+# Get the top 25 production companies
+topStudios <- names(sort(table(filteredMovie$prodName), decreasing = TRUE))[1:25]
+
+# Create a new column with the new names and grouping the rest as "Other"
+filteredMovie$prodGroup <- ifelse(filteredMovie$prodName %in% topStudios,
+                                  filteredMovie$prodName, "Other")
+```
+
+```{r, fig.height=10, fig.width=15}
+# Creating a joy plot to show revenue distributions between different production companies
+
+filteredMovie$logRevenue <- log10(filteredMovie$revenue)
+
+prodGroupCounts <- sort(table(filteredMovie$prodGroup))
+prodGroups <- names(prodGroupCounts)
+
+# Making custom company names since the ones in the data set were too long
+customLabels <- c("Other", "Castle Rock", "Dimension Films", "Lakeshore Ent.", "Lions Gate", "Imagine Ent.", "Touchstone", "MGM", "Regency Ent.", "Weinstein Co.", "Lionsgate", "TriStar", "Summit Ent.", "Fox Searchlight", "DreamWorks", "Warner Bros.", "Columbia Co.", "United Artists", "Miramax", "Village Roadshow", "Disney", "New Line", "20th Century Fox", "Columbia", "Universal", "Paramount")
+
+spacing <- 0.5
+xlimit <- range(pretty(range(filteredMovie$logRevenue)))
+ylimit <- c(0, (length(prodGroups) * spacing) + spacing)
+
+par(mai = c(.2, 1.2, .2, 1), omi = c(.6 ,2.5, .5, 2.5))  # Adjust margins for better label spacing
+plot(x = NULL, y = NULL, xlim = xlimit, ylim = ylimit, axes = FALSE, ann = FALSE)
+
+for (i in 1:length(prodGroups)) {
+  group <- prodGroups[i]
+  
+  revenueLog <- filteredMovie$logRevenue[filteredMovie$prodGroup == group]
+  
+  dens <- density(revenueLog)
+  
+  dens$x <- pmin(pmax(dens$x, xlimit[1]), xlimit[2])
+  dens$y[dens$x == xlimit[1] | dens$x == xlimit[2]] <- 0
+  
+  xPoly <- c(dens$x, rev(dens$x))
+  yPoly <- c(dens$y + (length(prodGroups) - i) * spacing,
+             rep((length(prodGroups) - i) * spacing, length(dens$y)))
+  
+  polygon(xPoly, yPoly, col = "#3366CC80", border = NA)
+  lines(dens$x, dens$y + (length(prodGroups) - i) * spacing, col = "white", lwd = 2)
+  
+  mtext(customLabels[i], 2, at = (length(prodGroups) - i) * spacing, las = 1, line = -0.3, cex = 1.72)
+}
+
+axis(1, at = pretty(xlimit), cex.axis = 1.8, line = -1)
+mtext("Log10 Revenue ($)", side = 1, line = 2, font = 2, cex = 1.75)
+mtext("Revenue Distribution by Production Company", side = 3, font = 2, cex = 2, line = -1.5)
+```
+
+
+### Correlation Matrix
+
+```{r}
+# Making the correlation matrix using Pearson correlation
+predictorVariables <- c("budget", "popularity", "vote_count", "runtime", "releaseYear")
+corM <- cor(filteredMovie[, c("revenue", predictorVariables)])
+
+colnames(corM) <- c("revenue", predictorVariables)
+rownames(corM) <- c("revenue", predictorVariables)
+corrplot(corM, method = "ellipse",  type = "upper", col = theColours, diag = FALSE, tl.cex = .6, tl.col = "gray50")
+```
+
+# Building the Model
+
+```{r}
+# Stratified sampling since categorical variables are being used (80% training, 20% testing)
+set.seed(5)
+trainData <- stratified(filteredMovie, "budget", size = 0.8, bothSets = TRUE)
+
+# Extract training and testing sets
+trainingSet <- trainData$SAMP1
+testingSet <- trainData$SAMP2
+```
+
+```{r}
+# Running the model
+theModel <- lm(log10(revenue) ~ log10(budget) + popularity + vote_count + releaseYear + runtime + prodGroup,
+               data = trainingSet)
+summary(theModel)
+
+```
+
+```{r}
+# Clearing out extreme values
+theResiduals <- abs(rstandard(theModel)) > 3
+theInfluentials <- cooks.distance(theModel) > (mean(cooks.distance(theModel)) + 3*sd(cooks.distance(theModel)))
+
+scoresToRemove <- as.logical(theResiduals+theInfluentials)
+trainSet.Clean <- trainingSet[!scoresToRemove, ]
+```
+
+```{r}
+# Re-running the model with the cleaned up data
+theModel.Clean <- lm(log10(revenue) ~ log10(budget) + popularity + vote_count + releaseYear + runtime + prodGroup,
+                     data = trainSet.Clean)
+summary(theModel.Clean)
+
+```
+
+### Multicollinearity
+
+```{r}
+# Using the variance inflation factor function (values <5 pass)
+vif(theModel.Clean)
+```
+
+### Normality of Residuals
+
+```{r}
+# Creating a QQ Plot to confirm the normality of residuals
+out <- qqnorm(theModel.Clean$residuals, plot = FALSE)
+
+par(mai = c(.3, .3, .6, .3))
+
+xlimit <- c(-4, 4)
+ylimit <- c(-1.5, 1.5)
+
+xticks <- pretty(xlimit)
+yticks <- pretty(ylimit)
+
+xticks <- xticks[xticks != 0]
+yticks <- yticks[yticks != 0]
+
+plot(x = NULL, y = NULL, xlim = xlimit, ylim = ylimit, axes = FALSE, ann = FALSE, asp = 2.5)
+
+qqline(theModel.Clean$residuals, col = "brown", lwd = 2.5)
+
+axis(1, at = pretty(xlimit), lwd = 2, tck = -0.015, labels = FALSE, pos = 0)
+axis(2, at = pretty(ylimit), lwd = 2, tck = -0.015, labels = FALSE, pos = 0)
+axis(1, at = pretty(xlimit), lwd = 2, tck = 0.015, labels = FALSE, pos = 0)
+axis(2, at = pretty(ylimit), lwd = 2, tck = 0.015, labels = FALSE, pos = 0)
+
+text(x = xticks, y = 0, labels = xticks, pos = 1, cex = 0.9)
+text(x = 0, y = yticks, labels = yticks, pos = 2, cex = 0.9)
+text(x = -1.5, y = 0.85, labels = "Sample Quantiles", srt = 90, font = 2)
+text(x = 2.2, y = -0.4, labels = "Theoretical Quantiles", font = 2)
+
+mtext("QQ Plot of Residuals From the Developed Model", side = 3, line = 1, font = 2)
+
+points(out$x, out$y, pch = 21, col = "gray50", bg = add.alpha("gray50", 0.5), cex = 1.5)
+
+
+```
+
+### Homoscedasticity
+
+```{r}
+# Creating a figure to confirm the assumption of Homoscedasticity
+# Calculate predicted values (Yp) and residuals
+Yp <- predict(theModel.Clean, data = trainData.Clean)
+residuals <- theModel.Clean$residuals
+
+par(omi = c(0,0,0,0))
+
+xlimit <- range(pretty(range(Yp)))
+ylimit <- range(pretty(range(residuals)))
+
+plot(x = NULL, y = NULL, xlim = xlimit, ylim = ylimit, axes = FALSE, ann = FALSE, cex = 1.2)
+
+axis(1, at = pretty(xlimit), lwd = 2, tck = -0.015, labels = FALSE, pos = 0)
+axis(2, at = pretty(ylimit), lwd = 2, tck = -0.015, labels = FALSE)
+
+mtext(pretty(ylimit), side = 2, at = pretty(ylimit), line = 0.4, las = 1)
+text(x = pretty(xlimit), y = -0.2, labels = pretty(xlimit))
+
+mtext("Predicted Values", side = 1, line = 0, font = 2)
+mtext("Residuals", side = 2, line = 2.5, font = 2)
+
+points(Yp, residuals, pch = 21, col = "gray65", bg = add.alpha("gray65"))
+
+mtext("Scatterplot of Predicted Values (training data) to Residuals of the Model",
+side = 3, line = 1, font = 2, cex = 1)
+```
+
+```{r}
+# Defining function which finds the R^2 of the model
+calculateR2 <- function(yPred, y){
+  ssError <- sum((yPred-y)**2)
+  ssRegression <- sum((yPred - mean(y))**2)
+  r2 <- ssRegression / (ssRegression+ssError)
+  return(r2)
+}
+```
+
+```{r}
+# Calculating the R^2 of the model
+yPredicted <- predict(theModel.Clean, newdata = testingSet)
+r2 <- calculateR2(yPredicted, log10(testingSet$revenue))
+r2 <- round(r2, 3)
+r2
+```
+
+```{r}
+# Creating a figure to visualize the performance of the model
+yPredicted <- predict(theModel.Clean, newdata = testingSet)
+yActual <- log10(testingSet$revenue)
+
+par(omi = c(0,0,0,1))
+
+xlimit <- c(3, max(yPredicted)+2)
+ylimit <- c(3, max(yActual)+3)
+  
+# Using the ceiling function to round up actual values so that both axes are the same length
+xticks <- seq(3, ceiling(max(xlimit)), by = 3)
+yticks <- seq(3, ceiling(max(ylimit)), by = 3)
+
+plot(x = NULL, y = NULL, xlim = xlimit, ylim = ylimit, axes = FALSE, ann = FALSE)
+
+lines(x = c(0, max(xticks)), y = c(0, max(yticks)), col = "gray", lwd = 2.5)
+points(x = yPredicted, y = yActual, pch = 21, col = "#3366CC", bg = "white", cex = 1.5)
+
+axis(1, at = xticks, lwd = 2, tck = -0.015, labels = FALSE)
+axis(2, at = yticks, lwd = 2, tck = -0.015, labels = FALSE)
+
+mtext(xticks, side = 1, at = xticks, line = 0.5)
+mtext("Predicted log10 Revenue ($)", side = 1, line = 1.8, font = 2)
+mtext(yticks, side = 2, at = yticks, line = 0.5, las = 1)
+mtext("Actual log10 Revenue ($)", side = 2, line = 2.2, font = 2)
+mtext("Performance of the Model on the Test Dataset of Movies", side = 3, line = 1, font = 2, cex = 1)
+
+text(x = max(xticks), y = 3.3, labels = bquote(R^2 == .(r2)), adj = 1)
+
+```
+
+```{r}
+# Calculating beta weights
+modelBeta <- lm.beta(theModel.Clean)
+
+summary(modelBeta)
+```
