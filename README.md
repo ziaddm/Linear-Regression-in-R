@@ -4,5 +4,3 @@ In this project, I used a linear regression model in R to predict movie revenue 
 - The PNG file contains a poster explaining the methods used and results of the model.
 
 - The R Markdown file contains all code for the model and figures.
-
-- A knitted HTML file of the code and outputs is included for easy viewing.
